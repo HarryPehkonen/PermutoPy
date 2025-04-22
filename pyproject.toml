@@ -6,12 +6,12 @@ build-backend = "setuptools.build_meta"
 name = "permuto"
 version = "0.1.0" # Match __init__.py
 authors = [
-  { name="Your Name", email="your@email.com" },
+  { name="Harri Pehkonen", email="harry.pehkonen@gmail.com" },
 ]
 description = "Lightweight JSON templating engine with variable substitution and reverse mapping."
-readme = "README.md" # Or README_PY.md
+readme = "README.md"
 license = { file="LICENSE" }
-requires-python = ">=3.7" # jsonpointer might need >= 3.6 or 3.7
+requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: CC0 1.0 Universal (CC0 1.0) Public Domain Dedication",
@@ -21,18 +21,22 @@ classifiers = [
     "Intended Audience :: Developers",
 ]
 dependencies = [
-    "jsonpointer>=2.0", # Specify a reasonable minimum version
+    "jsonpointer>=2.0",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/your-username/permuto-py" # Example URL
-"Bug Tracker" = "https://github.com/your-username/permuto-py/issues" # Example URL
+"Homepage" = "https://github.com/HarryPehkonen/PermutoPy" # Example URL
+"Bug Tracker" = "https://github.com/HarryPehkonen/PermutoPy/issues" # Example URL
 
 [project.optional-dependencies]
 test = [
     "pytest>=6.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["src"] # find packages in src directory
+# --- ADD THIS SECTION ---
+[project.scripts]
+permuto = "permuto.cli:main"
+# --- END ADDITION ---
 
+[tool.setuptools.packages.find]
+where = ["src"]
