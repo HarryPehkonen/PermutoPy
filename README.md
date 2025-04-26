@@ -48,6 +48,90 @@ Consider transforming data from a central structure (the "context") into differe
 
 In essence, Permuto provides a convenient abstraction layer for defining structure transformations through external template files rather than embedding that logic directly in application code.
 
+## Quick Start Example
+
+Here's a basic example demonstrating the core forward (`apply`) and reverse (`create_reverse_template`, `apply_reverse`) workflow:
+
+```python
+import permuto
+import json # For pretty printing output
+
+# 1. Define the source data (context)
+context = {
+    "user": {
+        "name": "Alice",
+        "id": 123
+    },
+    "status": "active"
+}
+
+# 2. Define the template structure
+template = {
+    "api_payload": {
+        "userName": "${user.name}",
+        "userId": "${user.id}",
+        "userStatus": "${status}"
+    },
+    "metadata": {
+        "processed_by": "permuto"
+    }
+}
+
+# 3. Apply the context to the template (forward operation)
+#    Using default options (enable_string_interpolation=False)
+try:
+    forward_result = permuto.apply(template, context)
+
+    print("--- Forward Result ---")
+    print(json.dumps(forward_result, indent=2))
+    # Expected Output:
+    # {
+    #   "api_payload": {
+    #     "userName": "Alice",
+    #     "userId": 123,
+    #     "userStatus": "active"
+    #   },
+    #   "metadata": {
+    #     "processed_by": "permuto"
+    #   }
+    # }
+
+    # 4. Create the reverse template (needed to go backwards)
+    #    Must use the *same* options as apply (specifically, interp=False)
+    reverse_template = permuto.create_reverse_template(template)
+
+    print("\n--- Reverse Template ---")
+    print(json.dumps(reverse_template, indent=2))
+    # Expected Output:
+    # {
+    #   "user": {
+    #     "name": "/api_payload/userName",
+    #     "id": "/api_payload/userId"
+    #   },
+    #   "status": "/api_payload/userStatus"
+    # }
+    # Note: It only includes context keys referenced by exact-match placeholders.
+
+    # 5. Apply the reverse template to the forward result (backward operation)
+    backward_result = permuto.apply_reverse(reverse_template, forward_result)
+
+    print("\n--- Backward Result (Reconstructed Context) ---")
+    print(json.dumps(backward_result, indent=2))
+    # Expected Output:
+    # {
+    #   "user": {
+    #     "name": "Alice",
+    #     "id": 123
+    #   },
+    #   "status": "active"
+    # }
+    # Note: This reconstructs the parts of the original context that were used
+    #       in the template's exact-match placeholders.
+
+except permuto.PermutoException as e:
+    print(f"An error occurred: {e}")
+```
+
 ## Implementation Details
 
 For details on building, installing, testing, specific API usage, and code examples for a particular language implementation, please refer to the README file within that specific implementation's repository or directory (e.g., `README_CPP.md`, `README_PY.md`).

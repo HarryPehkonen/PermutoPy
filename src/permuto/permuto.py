@@ -30,7 +30,27 @@ _NOT_FOUND = object()
 
 
 class Options:
-    """Configuration options for Permuto processing."""
+    """
+    Configuration options for Permuto processing.
+
+    Controls how template processing behaves, such as variable delimiters,
+    handling of missing keys, and string interpolation.
+
+    Attributes:
+        variable_start_marker (str): The string marking the beginning of a
+            placeholder. Defaults to "${".
+        variable_end_marker (str): The string marking the end of a placeholder.
+            Defaults to "}".
+        on_missing_key (str): Defines behavior when a key or path specified in
+            a placeholder is not found in the context. Must be 'ignore' (leave
+            the placeholder as is) or 'error' (raise PermutoMissingKeyError).
+            Defaults to "ignore".
+        enable_string_interpolation (bool): If True, placeholders within larger
+            strings (e.g., "Hello, ${user.name}!") are substituted. If False,
+            only exact match placeholders (e.g., the entire string is "${user.name}")
+            are substituted; others are treated as literals. Reverse operations
+            require this to be False. Defaults to False.
+    """
     def __init__(
         self,
         variable_start_marker: str = "${",
@@ -38,6 +58,15 @@ class Options:
         on_missing_key: str = "ignore",  # 'ignore' or 'error'
         enable_string_interpolation: bool = False,
     ):
+        """
+        Initializes the Options object.
+
+        Args:
+            variable_start_marker: The starting delimiter for placeholders.
+            variable_end_marker: The ending delimiter for placeholders.
+            on_missing_key: Behavior for missing keys ('ignore' or 'error').
+            enable_string_interpolation: Enable interpolation in non-exact strings.
+        """
         self.variable_start_marker = variable_start_marker
         self.variable_end_marker = variable_end_marker
         self.on_missing_key = on_missing_key
@@ -45,7 +74,13 @@ class Options:
         self.validate()
 
     def validate(self) -> None:
-        """Validates the options."""
+        """
+        Validates the options.
+
+        Raises:
+            PermutoInvalidOptionsError: If any option value is invalid (e.g.,
+                empty markers, identical markers, invalid on_missing_key value).
+        """
         if not self.variable_start_marker:
             raise PermutoInvalidOptionsError("variable_start_marker cannot be empty.")
         if not self.variable_end_marker:
@@ -56,7 +91,11 @@ class Options:
             raise PermutoInvalidOptionsError("on_missing_key must be 'ignore' or 'error'.")
 
 # --- Helper Functions ---
-
+# (Keep _stringify_json, _active_path_guard, _resolve_path,
+#  _resolve_and_process_placeholder, _process_string, _process_node,
+#  _insert_pointer_at_context_path, _build_reverse_template_recursive,
+#  _reconstruct_context_recursive as they are)
+# ... (rest of the helper functions from your original file) ...
 def _stringify_json(value: JsonType) -> str:
     """Converts a resolved JSON value to its string representation for interpolation."""
     if isinstance(value, str):
@@ -307,15 +346,29 @@ def _insert_pointer_at_context_path(
 
         if is_last_segment:
             # Assign the pointer string at the final key (segment), overwriting if needed.
+            # If the key already exists and is a dict, this overwrites it.
+            # If the key exists and is not a dict, it also overwrites.
+            # Consider if we need conflict detection (e.g., "${var}" vs "${var.sub}")
+            # Current behavior: Last processed placeholder wins for a given segment structure.
+            # If a dict exists where the pointer should go, it gets replaced by the pointer.
+            # If a pointer exists where a dict should go (from a deeper path), the dict replaces it.
+            existing_val = current_node.get(segment)
+            if isinstance(existing_val, dict):
+                 # Overwriting an existing structure with a primitive pointer
+                 # This is necessary for cases like {"a": "${var.sub}", "b": "${var}"} -> final state {"var": "/b"}
+                 pass # Allow overwrite below
             current_node[segment] = pointer_to_insert
         else:
             # Need to descend. Get or create the next node.
             existing_val = current_node.get(segment)
             if not isinstance(existing_val, dict):
-                # If it doesn't exist, or is not a dict, overwrite/create a dict.
+                # If it doesn't exist, or is not a dict (it's a pointer string),
+                # overwrite/create a dict. This handles cases where a primitive path
+                # like "${var}" was processed before a nested path like "${var.sub}".
                 current_node[segment] = {}
             # Descend into the object node.
             current_node = current_node[segment]
+
 
 def _build_reverse_template_recursive(
     current_template_node: TemplateType,
@@ -352,8 +405,8 @@ def _build_reverse_template_recursive(
             # Validate content doesn't contain markers AND path format is simple
             if start_marker not in content and end_marker not in content:
                 context_path = content
-                # Basic path validation (no empty segments, etc.)
-                if context_path and '.' not in context_path[-1:] and '.' not in context_path[:1] and '..' not in context_path:
+                # Basic path validation (no empty segments, etc.) - handled more robustly in insert
+                if context_path: # Cannot be empty path
                     is_exact_match = True
 
         if is_exact_match:
@@ -379,8 +432,13 @@ def _reconstruct_context_recursive(
         new_node: Dict[str, Any] = {}
         if isinstance(parent_context_node, dict):
             parent_context_node[current_key_or_index] = new_node
+        # NOTE: Assigning dict to list index is intentionally not supported here,
+        # as reverse templates are expected to mirror context structure (primarily dicts).
+        # elif isinstance(parent_context_node, list):
+        #     # This case would require careful handling if context could be list root
+        #     pass
         else:
-             raise PermutoReverseError(f"Cannot assign dict to list index {current_key_or_index}")
+             raise PermutoReverseError(f"Cannot assign dict to non-dict parent node at '{current_key_or_index}'")
 
         for key, value in reverse_node.items():
             _reconstruct_context_recursive(value, result_json, new_node, key)
@@ -391,37 +449,90 @@ def _reconstruct_context_recursive(
             resolved_value = jsonpointer.resolve_pointer(result_json, pointer_str)
             if isinstance(parent_context_node, dict):
                 parent_context_node[current_key_or_index] = resolved_value
-            # No list assignment expected here
+            # NOTE: Assigning resolved value to list index intentionally not supported.
+            # elif isinstance(parent_context_node, list):
+            #     # This case would require careful handling.
+            #     pass
+            else:
+                raise PermutoReverseError(f"Cannot assign value to non-dict parent node at '{current_key_or_index}'")
 
-        # --- FIX for Error Message ---
         except jsonpointer.JsonPointerException as e:
-             # More general message covers syntax errors and lookup failures
+             # Covers syntax errors and lookup failures (path not found)
              raise PermutoReverseError(
-                 f"Error processing pointer '{pointer_str}': {e}"
+                 f"Error processing pointer '{pointer_str}': {e}. Ensure the pointer is valid and exists in the result JSON."
             ) from e
         except Exception as e:
              raise PermutoReverseError(
                  f"Unexpected error processing pointer '{pointer_str}': {e}"
              ) from e
-        # --- End FIX ---
 
     else:
          type_name = type(reverse_node).__name__
          raise PermutoReverseError(
-             f"Invalid node type encountered in reverse template at '{current_key_or_index}'. Expected dict or str (JSON Pointer), found: {type_name}"
+             f"Invalid node type encountered in reverse template structure at/under '{current_key_or_index}'. Expected dict or str (JSON Pointer), found: {type_name}"
          )
 
 
 # --- Public API Functions ---
-# (apply, create_reverse_template, apply_reverse remain unchanged from previous version)
+
 def apply(
     template_json: TemplateType,
     context: ContextType,
     options: Optional[Options] = None
 ) -> JsonType:
+    """
+    Applies context data to a JSON template structure.
+
+    Recursively traverses the template. When a string node is encountered,
+    it checks for placeholders defined by `options.variable_start_marker` and
+    `options.variable_end_marker`.
+
+    - If a string is an *exact match* for a placeholder (e.g., "${user.name}"),
+      it's replaced by the corresponding value from the context, preserving the
+      original data type (number, boolean, null, list, object, string).
+      If the resolved value is itself a string containing placeholders, it's
+      recursively processed using the same `options`.
+    - If `options.enable_string_interpolation` is True and a string contains
+      placeholders but isn't an exact match (e.g., "Hello, ${user.name}!"),
+      the placeholders are substituted with their string representations
+      (non-strings are typically converted to compact JSON strings).
+    - If `options.enable_string_interpolation` is False (default), strings
+      that are not exact matches are treated as literals.
+
+    Handles nested data access using dot notation (e.g., "${user.profile.email}").
+    Detects and prevents cyclical substitutions.
+
+    Note: The input template is deep-copied before processing to avoid mutation.
+
+    Args:
+        template_json: A JSON-like structure (dict, list, primitive) serving
+                       as the template.
+        context: A dictionary containing the data to substitute into the template.
+        options: An optional Options object to customize behavior. If None,
+                 default options are used.
+
+    Returns:
+        A new JSON-like structure representing the template with substitutions applied.
+
+    Raises:
+        PermutoInvalidOptionsError: If the provided Options are invalid.
+        PermutoCycleError: If a cyclical dependency is detected during substitution.
+        PermutoMissingKeyError: If `options.on_missing_key` is 'error' and a
+                                required key/path is not found in the context.
+        PermutoException: For other potential processing errors.
+        TypeError: If the input template or context is not of the expected type.
+    """
     opts = options if options is not None else Options()
     opts.validate()
-    template_copy = copy.deepcopy(template_json)
+    # Perform a deep copy to avoid modifying the original template
+    try:
+        template_copy = copy.deepcopy(template_json)
+    except Exception as e:
+        raise TypeError(f"Failed to deepcopy the template. Ensure it's copyable: {e}") from e
+
+    if not isinstance(context, dict):
+        raise TypeError("Context must be a dictionary.")
+
     active_paths: Set[str] = set()
     return _process_node(template_copy, context, opts, active_paths)
 
@@ -430,12 +541,49 @@ def create_reverse_template(
     original_template: TemplateType,
     options: Optional[Options] = None
 ) -> Dict[str, Any]:
+    """
+    Creates a reverse template mapping context paths to result JSON Pointers.
+
+    Scans the `original_template` for *exact match* placeholders (e.g., "${key.path}").
+    For each found placeholder, it determines its location in the template structure
+    (represented as a JSON Pointer string, e.g., "/user/name") and the corresponding
+    context variable path (e.g., "key.path").
+
+    It builds a dictionary structure mirroring the *context*, where the leaf values
+    are the JSON Pointer strings pointing to where that context variable's value
+    is expected to be found in the *result* JSON generated by `apply()`.
+
+    This function requires `options.enable_string_interpolation` to be False,
+    as interpolation makes reversing ambiguous.
+
+    Args:
+        original_template: The JSON-like template structure that was used (or
+                           will be used) with `apply()`.
+        options: An optional Options object. Must have
+                 `enable_string_interpolation=False`. Delimiters from options
+                 are used to find placeholders. If None, default options are used.
+
+    Returns:
+        A dictionary representing the reverse template structure.
+
+    Raises:
+        PermutoInvalidOptionsError: If the provided Options are invalid.
+        PermutoReverseError: If `options.enable_string_interpolation` is True,
+                             or if errors occur during reverse template construction
+                             (e.g., invalid context path formats).
+        TypeError: If the input template is not of the expected type.
+    """
     opts = options if options is not None else Options()
     opts.validate()
     if opts.enable_string_interpolation:
         raise PermutoReverseError("Cannot create a reverse template when string interpolation is enabled in options.")
+
+    # Ensure template is a valid structure (basic check)
+    if not isinstance(original_template, (dict, list, str, int, float, bool, type(None))):
+         raise TypeError("Original template must be a valid JSON-like structure.")
+
     reverse_template: Dict[str, Any] = {}
-    initial_pointer_str = ""
+    initial_pointer_str = "" # Root pointer
     _build_reverse_template_recursive(
         original_template,
         initial_pointer_str,
@@ -449,10 +597,51 @@ def apply_reverse(
     reverse_template: Dict[str, Any],
     result_json: JsonType
 ) -> ContextType:
+    """
+    Reconstructs the original context data from a result using a reverse template.
+
+    Traverses the `reverse_template` structure. Each leaf node in the
+    `reverse_template` is expected to be a string containing a JSON Pointer
+    (e.g., "/user/name").
+
+    For each leaf node (JSON Pointer), this function looks up the value at that
+    pointer location within the `result_json`. It then builds a new dictionary
+    structure, placing the extracted values at the paths defined by the
+    `reverse_template` structure itself.
+
+    Example:
+        If `reverse_template` is `{"user": {"name": "/output_name"}}`
+        and `result_json` is `{"output_name": "Alice"}`,
+        this function will return `{"user": {"name": "Alice"}}`.
+
+    Args:
+        reverse_template: The reverse template dictionary generated by
+                          `create_reverse_template()`.
+        result_json: The JSON-like structure that was produced by applying the
+                     original template (using `apply()` with interpolation disabled).
+
+    Returns:
+        A dictionary representing the reconstructed context data.
+
+    Raises:
+        PermutoReverseError: If the `reverse_template` is malformed (e.g., root
+                             is not a dict, leaf nodes are not strings, JSON
+                             pointers are invalid or do not resolve in the
+                             `result_json`).
+        TypeError: If inputs are not of the expected types.
+        jsonpointer.JsonPointerException: If a pointer in the reverse template
+                                          cannot be resolved in the result_json.
+    """
     if not isinstance(reverse_template, dict):
         raise PermutoReverseError("Reverse template root must be a dictionary.")
+    # Basic check for result_json type might be useful too
+    if not isinstance(result_json, (dict, list, str, int, float, bool, type(None))):
+         raise TypeError("Result JSON must be a valid JSON-like structure.")
+
     reconstructed_context: Dict[str, Any] = {}
+    # Iterate through the top level of the reverse template
     for key, value in reverse_template.items():
-        # Use _reconstruct_context_recursive to handle nesting
+        # Use the recursive helper to handle nested structures and assignments
         _reconstruct_context_recursive(value, result_json, reconstructed_context, key)
+
     return reconstructed_context
