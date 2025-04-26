@@ -25,18 +25,16 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/HarryPehkonen/PermutoPy" # Example URL
-"Bug Tracker" = "https://github.com/HarryPehkonen/PermutoPy/issues" # Example URL
+"Homepage" = "https://github.com/HarryPehkonen/PermutoPy"
+"Bug Tracker" = "https://github.com/HarryPehkonen/PermutoPy/issues"
 
 [project.optional-dependencies]
 test = [
     "pytest>=6.0",
 ]
 
-# --- ADD THIS SECTION ---
 [project.scripts]
 permuto = "permuto.cli:main"
-# --- END ADDITION ---
 
 [tool.setuptools.packages.find]
 where = ["src"]
