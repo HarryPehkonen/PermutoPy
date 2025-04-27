@@ -91,11 +91,6 @@ class Options:
             raise PermutoInvalidOptionsError("on_missing_key must be 'ignore' or 'error'.")
 
 # --- Helper Functions ---
-# (Keep _stringify_json, _active_path_guard, _resolve_path,
-#  _resolve_and_process_placeholder, _process_string, _process_node,
-#  _insert_pointer_at_context_path, _build_reverse_template_recursive,
-#  _reconstruct_context_recursive as they are)
-# ... (rest of the helper functions from your original file) ...
 def _stringify_json(value: JsonType) -> str:
     """Converts a resolved JSON value to its string representation for interpolation."""
     if isinstance(value, str):
@@ -244,7 +239,7 @@ def _process_string(
     str_len = len(template_str)
     min_placeholder_len = start_len + end_len + 1
 
-    # --- 1. Check for Exact Match Placeholder ---
+    # --- Check for Exact Match Placeholder ---
     is_exact_match = False
     path = ""
     if (str_len >= min_placeholder_len and
@@ -260,11 +255,11 @@ def _process_string(
     if is_exact_match:
         return _resolve_and_process_placeholder(path, template_str, context, options, active_paths)
 
-    # --- 2. Handle based on Interpolation Option ---
+    # --- Handle based on Interpolation Option ---
     if not options.enable_string_interpolation:
         return template_str
 
-    # --- 3. Perform Interpolation ---
+    # --- Perform Interpolation ---
     result_parts: List[str] = []
     current_pos = 0
     while current_pos < str_len:
@@ -396,17 +391,19 @@ def _build_reverse_template_recursive(
         str_len = len(template_str)
         min_placeholder_len = start_len + end_len + 1
 
+
         is_exact_match = False
         context_path = ""
         if (str_len >= min_placeholder_len and
             template_str.startswith(start_marker) and
             template_str.endswith(end_marker)):
             content = template_str[start_len:-end_len]
-            # Validate content doesn't contain markers AND path format is simple
+            # Validate content doesn't contain markers
             if start_marker not in content and end_marker not in content:
                 context_path = content
-                # Basic path validation (no empty segments, etc.) - handled more robustly in insert
-                if context_path: # Cannot be empty path
+                # Validate the extracted context_path format *before* declaring it an exact match
+                if context_path and not (context_path.startswith('.') or context_path.endswith('.') or '..' in context_path):
+                    # Only if the path is non-empty AND has a valid format
                     is_exact_match = True
 
         if is_exact_match:
@@ -418,7 +415,6 @@ def _build_reverse_template_recursive(
                  raise PermutoReverseError(f"Error building reverse template for context path '{context_path}': {e}") from e
             except Exception as e:
                  raise PermutoReverseError(f"Unexpected error inserting pointer for context path '{context_path}': {e}") from e
-
 
 def _reconstruct_context_recursive(
     reverse_node: JsonType,
