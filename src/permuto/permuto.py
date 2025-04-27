@@ -1,9 +1,8 @@
 # src/permuto/permuto.py
-import json
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import copy
-import re
+import json
 from contextlib import contextmanager
+from typing import Any, Dict, List, Optional, Set, Union
 
 try:
     import jsonpointer
@@ -12,9 +11,9 @@ except ImportError:
 
 
 from .exceptions import (
+    PermutoCycleError,
     PermutoException,
     PermutoInvalidOptionsError,
-    PermutoCycleError,
     PermutoMissingKeyError,
     PermutoReverseError,
 )
@@ -95,16 +94,15 @@ def _stringify_json(value: JsonType) -> str:
     """Converts a resolved JSON value to its string representation for interpolation."""
     if isinstance(value, str):
         return value
-    elif value is None:
+    if value is None:
         return "null"
-    elif isinstance(value, bool):
+    if isinstance(value, bool):
         return "true" if value else "false"
-    elif isinstance(value, (int, float)):
+    if isinstance(value, (int, float)):
         return json.dumps(value)
-    elif isinstance(value, (list, dict)):
-        return json.dumps(value, separators=(',', ':'))
-    else:
-        return ""
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, separators=(",", ":"))
+    return ""
 
 @contextmanager
 def _active_path_guard(active_paths: Set[str], path_to_check: str):
@@ -127,7 +125,7 @@ def _resolve_path(
     context: ContextType,
     path: str,
     options: Options,
-    full_placeholder_for_error: str
+    full_placeholder_for_error: str,
 ) -> Union[JsonType, object]:
     if not path:
         if options.on_missing_key == "error":
@@ -135,7 +133,7 @@ def _resolve_path(
         return _NOT_FOUND
 
     current_obj = context
-    segments = path.split('.')
+    segments = path.split(".")
     seg_idx = 0
     current_path_for_error = [] # Track path for error reporting
 
@@ -157,7 +155,7 @@ def _resolve_path(
                     seg_idx += (1 + lookahead)
                     found_match = True
                     break # Exit lookahead loop, continue main segment loop
-                elif isinstance(current_obj, list) and potential_key.isdigit() and lookahead == 0:
+                if isinstance(current_obj, list) and potential_key.isdigit() and lookahead == 0:
                     # Only consider single segment for list index
                     try:
                         current_obj = current_obj[int(potential_key)]
@@ -189,7 +187,7 @@ def _resolve_path(
         if options.on_missing_key == "error":
             raise PermutoMissingKeyError(
                  f"Key or path not found in context: '{path}' (failed near path '{failed_path_str}')", # Adjusted error message
-                 path
+                 path,
              ) from e
         return _NOT_FOUND # Use sentinel for failure
     except Exception as e:
@@ -202,7 +200,7 @@ def _resolve_and_process_placeholder(
     full_placeholder: str,
     context: ContextType,
     options: Options,
-    active_paths: Set[str]
+    active_paths: Set[str],
 ) -> JsonType:
     """
     Resolves a placeholder path, handles cycles and missing keys,
@@ -215,19 +213,17 @@ def _resolve_and_process_placeholder(
         if resolved_value is _NOT_FOUND:
             # Lookup failed or invalid path ignored
             return full_placeholder
-        else:
-            # Successfully resolved (value could be None)
-            if isinstance(resolved_value, str):
-                return _process_string(resolved_value, context, options, active_paths)
-            else:
-                return resolved_value # Return actual value (including None)
+        # Successfully resolved (value could be None)
+        if isinstance(resolved_value, str):
+            return _process_string(resolved_value, context, options, active_paths)
+        return resolved_value # Return actual value (including None)
 
 
 def _process_string(
     template_str: str,
     context: ContextType,
     options: Options,
-    active_paths: Set[str]
+    active_paths: Set[str],
 ) -> JsonType:
     """
     Processes a string node, handling exact matches and interpolation based on options.
@@ -283,7 +279,7 @@ def _process_string(
             result_parts.append(full_placeholder)
         else:
             resolved_value = _resolve_and_process_placeholder(
-                placeholder_path, full_placeholder, context, options, active_paths
+                placeholder_path, full_placeholder, context, options, active_paths,
             )
             result_parts.append(_stringify_json(resolved_value))
 
@@ -296,7 +292,7 @@ def _process_node(
     node: TemplateType,
     context: ContextType,
     options: Options,
-    active_paths: Set[str]
+    active_paths: Set[str],
 ) -> JsonType:
     """Recursively processes a node in the template."""
     if isinstance(node, dict):
@@ -304,12 +300,11 @@ def _process_node(
         for key, val in node.items():
             result_obj[key] = _process_node(val, context, options, active_paths)
         return result_obj
-    elif isinstance(node, list):
+    if isinstance(node, list):
         return [_process_node(element, context, options, active_paths) for element in node]
-    elif isinstance(node, str):
+    if isinstance(node, str):
         return _process_string(node, context, options, active_paths)
-    else:
-        return node
+    return node
 
 
 # --- Reverse Template Helpers ---
@@ -317,7 +312,7 @@ def _process_node(
 def _insert_pointer_at_context_path(
     reverse_template_node: Dict[str, Any],
     context_path: str, # Dot notation path for context structure
-    pointer_to_insert: str # JSON Pointer string for result location
+    pointer_to_insert: str, # JSON Pointer string for result location
 ) -> None:
     """
     Inserts the result pointer into the nested reverse template structure,
@@ -327,10 +322,10 @@ def _insert_pointer_at_context_path(
          raise PermutoReverseError("[Internal] Invalid empty context path.")
 
     # Basic path validation for empty segments
-    if context_path.startswith('.') or context_path.endswith('.') or '..' in context_path:
+    if context_path.startswith(".") or context_path.endswith(".") or ".." in context_path:
         raise PermutoReverseError(f"[Internal] Invalid context path format: {context_path}")
 
-    segments = context_path.split('.')
+    segments = context_path.split(".")
     current_node = reverse_template_node
 
     for i, segment in enumerate(segments):
@@ -369,7 +364,7 @@ def _build_reverse_template_recursive(
     current_template_node: TemplateType,
     current_result_pointer_str: str, # JSON Pointer string for result location
     reverse_template_ref: Dict[str, Any], # The root reverse template being built
-    options: Options
+    options: Options,
 ) -> None:
     """Recursively builds the reverse template."""
 
@@ -402,14 +397,14 @@ def _build_reverse_template_recursive(
             if start_marker not in content and end_marker not in content:
                 context_path = content
                 # Validate the extracted context_path format *before* declaring it an exact match
-                if context_path and not (context_path.startswith('.') or context_path.endswith('.') or '..' in context_path):
+                if context_path and not (context_path.startswith(".") or context_path.endswith(".") or ".." in context_path):
                     # Only if the path is non-empty AND has a valid format
                     is_exact_match = True
 
         if is_exact_match:
             try:
                 _insert_pointer_at_context_path(
-                    reverse_template_ref, context_path, current_result_pointer_str
+                    reverse_template_ref, context_path, current_result_pointer_str,
                 )
             except PermutoReverseError as e:
                  raise PermutoReverseError(f"Error building reverse template for context path '{context_path}': {e}") from e
@@ -420,7 +415,7 @@ def _reconstruct_context_recursive(
     reverse_node: JsonType,
     result_json: JsonType,
     parent_context_node: Union[Dict, List], # The node being built (dict or list)
-    current_key_or_index: Union[str, int] # Key/Index in the parent to assign to
+    current_key_or_index: Union[str, int], # Key/Index in the parent to assign to
 ) -> None:
     """Recursively reconstructs the context using the reverse template."""
 
@@ -455,17 +450,17 @@ def _reconstruct_context_recursive(
         except jsonpointer.JsonPointerException as e:
              # Covers syntax errors and lookup failures (path not found)
              raise PermutoReverseError(
-                 f"Error processing pointer '{pointer_str}': {e}. Ensure the pointer is valid and exists in the result JSON."
+                 f"Error processing pointer '{pointer_str}': {e}. Ensure the pointer is valid and exists in the result JSON.",
             ) from e
         except Exception as e:
              raise PermutoReverseError(
-                 f"Unexpected error processing pointer '{pointer_str}': {e}"
+                 f"Unexpected error processing pointer '{pointer_str}': {e}",
              ) from e
 
     else:
          type_name = type(reverse_node).__name__
          raise PermutoReverseError(
-             f"Invalid node type encountered in reverse template structure at/under '{current_key_or_index}'. Expected dict or str (JSON Pointer), found: {type_name}"
+             f"Invalid node type encountered in reverse template structure at/under '{current_key_or_index}'. Expected dict or str (JSON Pointer), found: {type_name}",
          )
 
 
@@ -474,7 +469,7 @@ def _reconstruct_context_recursive(
 def apply(
     template_json: TemplateType,
     context: ContextType,
-    options: Optional[Options] = None
+    options: Optional[Options] = None,
 ) -> JsonType:
     """
     Applies context data to a JSON template structure.
@@ -535,7 +530,7 @@ def apply(
 
 def create_reverse_template(
     original_template: TemplateType,
-    options: Optional[Options] = None
+    options: Optional[Options] = None,
 ) -> Dict[str, Any]:
     """
     Creates a reverse template mapping context paths to result JSON Pointers.
@@ -584,14 +579,14 @@ def create_reverse_template(
         original_template,
         initial_pointer_str,
         reverse_template,
-        opts
+        opts,
     )
     return reverse_template
 
 
 def apply_reverse(
     reverse_template: Dict[str, Any],
-    result_json: JsonType
+    result_json: JsonType,
 ) -> ContextType:
     """
     Reconstructs the original context data from a result using a reverse template.

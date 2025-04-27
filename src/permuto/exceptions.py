@@ -2,15 +2,12 @@
 
 class PermutoException(Exception):
     """Base class for all Permuto exceptions."""
-    pass
 
 class PermutoInvalidOptionsError(PermutoException, ValueError):
     """Exception raised for invalid configuration options."""
-    pass
 
 class PermutoParseException(PermutoException):
     """Exception raised for errors parsing template/context (less common)."""
-    pass
 
 class PermutoCycleError(PermutoException):
     """Exception raised when a cyclical dependency is detected."""
@@ -38,4 +35,3 @@ class PermutoMissingKeyError(PermutoException, LookupError):
 
 class PermutoReverseError(PermutoException, RuntimeError):
     """Exception raised during reverse template operations."""
-    pass
